@@ -11,6 +11,9 @@ This is a small, dependency-free helper for the make.fun bounty
 * ``--serve`` — preview the ad page on localhost, so the poster and the
   story list can be eyeballed in a browser before submitting.
 
+Running it with no arguments runs the checks and exits 0 when they all
+pass, so a plain ``python3 main.py`` run completes on its own.
+
 Only the Python standard library is used; nothing is installed.
 """
 
@@ -228,18 +231,17 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.serve:
         return serve_directory(args.dir, args.port)
-    if args.check:
-        findings = run_all_checks(args.dir)
-        for finding in findings:
-            print(finding.render())
-        failed = [f for f in findings if not f.ok]
-        if failed:
-            print(f"\n{len(failed)} check(s) failed.")
-            return 1
-        print(f"\nAll {len(findings)} checks passed.")
-        return 0
-    build_parser().print_help()
-    return 2
+    # Default (and --check): validate the entry files and exit with the
+    # result, so a plain run completes instead of printing help.
+    findings = run_all_checks(args.dir)
+    for finding in findings:
+        print(finding.render())
+    failed = [f for f in findings if not f.ok]
+    if failed:
+        print(f"\n{len(failed)} check(s) failed.")
+        return 1
+    print(f"\nAll {len(findings)} checks passed.")
+    return 0
 
 
 if __name__ == "__main__":
