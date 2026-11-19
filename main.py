@@ -11,8 +11,11 @@ This is a small, dependency-free helper for the make.fun bounty
 * ``--serve`` — preview the ad page on localhost, so the poster and the
   story list can be eyeballed in a browser before submitting.
 
-Running it with no arguments runs the checks and exits 0 when they all
-pass, so a plain ``python3 main.py`` run completes on its own.
+Running it with no arguments writes the entry image to the output
+directory: it copies ``entry.png`` (the poster resized to at most
+1024x1024 px and 1 MiB) to ``$MAKEFUN_OUTPUT_DIR/entry.png`` (default
+``/output``), creating the directory if needed, and exits 0. That is
+what the grader runs, twice, with no network.
 
 Only the Python standard library is used; nothing is installed.
 """
@@ -23,10 +26,14 @@ import argparse
 import functools
 import http.server
 import os
+import shutil
 import sys
 
 PAGE_NAME = "index.html"
 POSTER_NAME = "ad.png"
+ENTRY_NAME = "entry.png"
+OUTPUT_ENV_VAR = "MAKEFUN_OUTPUT_DIR"
+OUTPUT_DEFAULT = "/output"
 GUIDE_NAME = "README.md"
 LICENCE_NAME = "LICENSE"
 
@@ -185,6 +192,29 @@ def run_all_checks(root: str) -> list[Finding]:
     return findings
 
 
+def write_entry_image(root: str, out_dir: str | None = None) -> int:
+    """Copy entry.png to the output directory (the grader's entry point).
+
+    The output directory comes from $MAKEFUN_OUTPUT_DIR, defaulting to
+    /output. Creates the directory if needed. Deterministic: the same
+    source bytes are copied on every run, so two runs write identical
+    bytes. Returns 0 on success, 1 if the entry image is missing.
+    """
+    out_dir = out_dir or os.environ.get(OUTPUT_ENV_VAR) or OUTPUT_DEFAULT
+    src = os.path.join(root, ENTRY_NAME)
+    if not os.path.isfile(src):
+        print(f"error: {ENTRY_NAME} not found in {root}", file=sys.stderr)
+        return 1
+    os.makedirs(out_dir, exist_ok=True)
+    dest = os.path.join(out_dir, ENTRY_NAME)
+    shutil.copyfile(src, dest)
+    print(
+        f"Wrote {dest} "
+        f"({os.path.getsize(dest)} bytes, from {ENTRY_NAME})"
+    )
+    return 0
+
+
 def serve_directory(root: str, port: int) -> int:
     """Serve the entry directory over HTTP until interrupted."""
     handler = functools.partial(
@@ -231,17 +261,20 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.serve:
         return serve_directory(args.dir, args.port)
-    # Default (and --check): validate the entry files and exit with the
-    # result, so a plain run completes instead of printing help.
-    findings = run_all_checks(args.dir)
-    for finding in findings:
-        print(finding.render())
-    failed = [f for f in findings if not f.ok]
-    if failed:
-        print(f"\n{len(failed)} check(s) failed.")
-        return 1
-    print(f"\nAll {len(findings)} checks passed.")
-    return 0
+    if args.check:
+        # --check: validate the entry files and exit with the result.
+        findings = run_all_checks(args.dir)
+        for finding in findings:
+            print(finding.render())
+        failed = [f for f in findings if not f.ok]
+        if failed:
+            print(f"\n{len(failed)} check(s) failed.")
+            return 1
+        print(f"\nAll {len(findings)} checks passed.")
+        return 0
+    # Default (no arguments): write the entry image to the output
+    # directory, so a plain run completes instead of printing help.
+    return write_entry_image(args.dir)
 
 
 if __name__ == "__main__":
